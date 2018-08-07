@@ -5,7 +5,7 @@ function Update-Flashcards(
     [Parameter(Mandatory=$true)] [string] $Token) {
 
     $Patch = @{
-        'cards' = $Input | % {
+        'cards' = ($Input | ? { ($_.PSObject.Properties | select -Index 0).Value } | % {
             @{
                 'sides' = @($_.PSObject.Properties | % {
                     @{
@@ -15,7 +15,7 @@ function Update-Flashcards(
                     }
                 })
             }
-        } | ConvertTo-Json -Depth 50 -Compress
+        }) | ConvertTo-Json -Depth 50 -Compress
     }
 
     if ($Patch.cards[0] -eq '{') {
