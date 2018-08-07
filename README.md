@@ -15,9 +15,7 @@ Hangul     Meaning
 감사합니다   Thank you.
 
 ~
-λ $Cards | Update-Flashcards
-> -Deck '<Tinycards GUID>'
-> -Token '<Tinycards JWT>'
+λ $Cards | Update-Flashcards -Deck '<Tinycards GUID>' -Token '<Tinycards JWT>'
 
 StatusCode        : 200
 StatusDescription : OK
