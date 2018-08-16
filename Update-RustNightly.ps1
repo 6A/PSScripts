@@ -4,7 +4,11 @@ function Update-RustNightly(
   [string] $RustupExe = 'rustup.exe',
   [string] $RustupDir,
   [string] $Toolchain,
-  [int] $Tries = 30) {
+  [int] $Tries = 30,
+  [int] $Offset = 0,
+  [switch] $KeepOld,
+  [switch] $Verbose,
+  [switch] $Ignore) {
 
   if (-not $RustupDir) {
     $RustupDir = [IO.Path]::Combine($HOME, '.rustup')
@@ -49,13 +53,16 @@ function Update-RustNightly(
   # Find needed components
   $Components = Invoke-Rustup 'component', 'list', '--toolchain', $Toolchain `
               | Select-String '(.+?) \('                                     `
-              | % { $_.Matches } | % { $_.Groups[1].Value }
+              | % { $_.Matches } | % { $_.Groups[1].Value }                  `
+              | ? { $_ -notin 'rust-src', 'rust-std-wasm32-unknown-unknown' }
+
+  $Components += 'rls-preview'
   
   Write-Prefixed 'i' Blue "Found {$($Components.Count)} needed components."
 
 
   # Find first release that works
-  $Date = [datetime]::Now
+  $Date = [datetime]::Now.AddDays(-$Offset)
   $MinDate = $Date.AddDays(-$Tries)
 
   while ($Date -gt $MinDate) {
@@ -74,11 +81,19 @@ function Update-RustNightly(
 
       $MatchingComponents = $Components | % {
         $ComponentName = $_.Replace("-$Target", '')
-        $Content | Select-String "\[pkg.$ComponentName(?:\.target\.$Target)?\]\s+available = true"
+        $Match = $Content | Select-String "(?m)\[pkg.$ComponentName(?:\.target\.$Target)?\]\s+available = true"
+        
+        if ($Verbose -and -not $Match) {
+          Write-Prefixed '-' Yellow "Missing component {$ComponentName}."
+        }
+
+        $Match
       }
 
-      if ($MatchingComponents -contains $null) {
-        Write-Prefixed '-' Yellow "Components were missing in {$DateString}, trying previous day..."
+      $Diff = $Components.Length - $MatchingComponents.Length
+
+      if ($Diff -or $MatchingComponents -contains $null) {
+        Write-Prefixed '-' Yellow "Some components were missing in {$DateString}, trying previous day..."
         continue
       }
 
@@ -88,7 +103,7 @@ function Update-RustNightly(
       Write-Prefixed '+' Green "Match found, installing {$NewToolchain}..."
       Invoke-Rustup 'toolchain', 'install', $NewToolchain
 
-      if (-not $?) {
+      if ($LASTEXITCODE -ne 0) {
         Write-Prefixed '!' Red "Failed to install {$NewToolchain}, trying previous day..."
         continue
       }
@@ -98,7 +113,7 @@ function Update-RustNightly(
       $CurrentToolchainPath = Join-Path $ToolchainsPath -ChildPath $Toolchain
       $NewToolchainPath     = Join-Path $ToolchainsPath -ChildPath $NewToolchain
 
-      if (Test-Path $CurrentToolchainPath) {
+      if ((Test-Path $CurrentToolchainPath) -and $KeepOld) {
         mv $CurrentToolchainPath "$CurrentToolchainPath-old" -Force
       }
 
@@ -109,14 +124,13 @@ function Update-RustNightly(
       $CurrentToolchainHashPath = Join-Path $HashesPath -ChildPath $Toolchain
       $NewToolchainHashPath     = Join-Path $HashesPath -ChildPath $NewToolchain
 
-      if (Test-Path $CurrentToolchainHashPath) {
+      if ((Test-Path $CurrentToolchainHashPath) -and $KeepOld) {
         mv $CurrentToolchainHashPath "$CurrentToolchainHashPath-old" -Force
       }
 
       mv $NewToolchainHashPath $CurrentToolchainHashPath -Force
 
       Write-Prefixed '+' Green "Toolchain successfully updated."
-
       return
     } catch {
       Write-Prefixed '!' Red "Failed to add {$DateString}, trying previous day..."
